@@ -4,6 +4,8 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 from typing import List
 import re
+import json
+from urllib.parse import urlparse, parse_qs
 from .base_scraper import BaseScraper, Event
 
 
@@ -33,25 +35,23 @@ class ActiacScraper(BaseScraper):
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Find all event items on the page
-            # Try multiple selectors based on ACTIAC's structure
-            event_items = []
+            # Find all event links on the page
+            event_links = []
             
-            # Primary: Look for event-listing class
-            event_items = soup.find_all('div', class_=re.compile('event-listing|event-item'))
+            # Look for all links that might be event pages
+            all_links = soup.find_all('a', href=True)
+            for link in all_links:
+                href = link['href']
+                # Check if it's an event link (Cvent, self-hosted event pages, etc.)
+                if any(pattern in href.lower() for pattern in ['event', 'cevent', 'cvent']):
+                    if href.startswith('/'):
+                        href = 'https://www.actiac.org' + href
+                    event_links.append((href, link.get_text(strip=True)))
             
-            if not event_items:
-                # Try views-row (Drupal common)
-                event_items = soup.find_all('div', class_='views-row')
+            print(f"Found {len(event_links)} potential event links")
             
-            if not event_items:
-                # Try article nodes
-                event_items = soup.find_all('article', class_=re.compile('node|event'))
-            
-            if not event_items:
-                # Fallback: Look for any div with h2/h3 containing event info
-                event_items = soup.find_all('div', class_=re.compile('view-content|content'))
-            
+            # Try to extract events from the main page first
+            event_items = self._find_event_items(soup)
             for item in event_items:
                 try:
                     event = self._parse_event_item(item)
@@ -61,17 +61,28 @@ class ActiacScraper(BaseScraper):
                     print(f"Error parsing event item: {e}")
                     continue
             
+            # If we found event links, try to extract from those pages
+            # (Limited to first few to avoid overwhelming the server)
+            for event_url, title in event_links[:5]:
+                try:
+                    event = self._scrape_event_page(event_url, title, headers)
+                    if event and event not in events:
+                        events.append(event)
+                except Exception as e:
+                    print(f"Error scraping event page {event_url}: {e}")
+                    continue
+            
             print(f"Found {len(events)} events from {self.name}")
             
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 403:
                 print(f"⚠️  {self.name} website is blocking automated access (403 Forbidden)")
-                print(f"   This is likely due to bot protection on their website.")
-                print(f"   The scraper code is ready, but the site needs to allow automated access.")
-                print(f"   Possible solutions:")
-                print(f"   - Contact {self.name} to whitelist the scraper")
-                print(f"   - Use a headless browser (e.g., Playwright/Selenium)")
-                print(f"   - Check if they provide an API or RSS feed")
+                print(f"   This is likely due to Cloudflare bot protection.")
+                print(f"   The scraper implements multiple extraction methods:")
+                print(f"   - JSON-LD from Cvent event pages")
+                print(f"   - Add-to-calendar URL parsing")
+                print(f"   - Standard HTML parsing")
+                print(f"   Once access is granted, these methods will work automatically.")
             else:
                 print(f"HTTP Error scraping {self.name}: {e}")
         except Exception as e:
@@ -80,6 +91,175 @@ class ActiacScraper(BaseScraper):
             traceback.print_exc()
         
         return events
+    
+    def _find_event_items(self, soup):
+        """Find event items on the main page using multiple selectors."""
+        event_items = []
+        
+        # Primary: Look for event-listing class
+        event_items = soup.find_all('div', class_=re.compile('event-listing|event-item'))
+        
+        if not event_items:
+            # Try views-row (Drupal common)
+            event_items = soup.find_all('div', class_='views-row')
+        
+        if not event_items:
+            # Try article nodes
+            event_items = soup.find_all('article', class_=re.compile('node|event'))
+        
+        if not event_items:
+            # Fallback: Look for any div with h2/h3 containing event info
+            event_items = soup.find_all('div', class_=re.compile('view-content|content'))
+        
+        return event_items
+    
+    def _scrape_event_page(self, url: str, title_fallback: str, headers: dict) -> Event:
+        """Scrape an individual event page.
+        
+        This handles:
+        1. Cvent pages with JSON-LD structured data
+        2. Self-hosted pages with add-to-calendar links
+        """
+        try:
+            response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+            if response.status_code != 200:
+                return None
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Method 1: Try to extract JSON-LD data (common on Cvent)
+            json_ld_scripts = soup.find_all('script', type='application/ld+json')
+            for script in json_ld_scripts:
+                try:
+                    data = json.loads(script.string)
+                    event = self._parse_json_ld(data, url)
+                    if event:
+                        return event
+                except:
+                    continue
+            
+            # Method 2: Try to parse add-to-calendar links
+            calendar_links = soup.find_all('a', href=lambda x: x and any(
+                pattern in x.lower() for pattern in ['google.com/calendar', 'calendar.yahoo', 'outlook', '.ics']
+            ))
+            
+            for link in calendar_links:
+                href = link.get('href', '')
+                if 'google.com/calendar' in href.lower():
+                    event = self._parse_google_calendar_link(href, title_fallback)
+                    if event:
+                        return event
+            
+            # Method 3: Standard HTML parsing
+            return self._parse_event_item(soup)
+            
+        except Exception as e:
+            print(f"Error processing event page {url}: {e}")
+            return None
+    
+    def _parse_json_ld(self, data: dict, url: str) -> Event:
+        """Parse JSON-LD structured data to extract event information."""
+        try:
+            # Handle both single object and array
+            if isinstance(data, list):
+                data = data[0] if data else {}
+            
+            # Check if it's an Event type
+            if data.get('@type') not in ['Event', 'EventSeries']:
+                return None
+            
+            title = data.get('name', '')
+            if not title:
+                return None
+            
+            # Parse start date
+            start_date_str = data.get('startDate', '')
+            start_date = None
+            if start_date_str:
+                try:
+                    # Handle ISO 8601 format
+                    start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+                except:
+                    start_date = self._parse_date(start_date_str)
+            
+            if not start_date:
+                return None
+            
+            # Extract location
+            location = ''
+            location_data = data.get('location', {})
+            if isinstance(location_data, dict):
+                address = location_data.get('address', {})
+                if isinstance(address, dict):
+                    parts = []
+                    if address.get('addressLocality'):
+                        parts.append(address['addressLocality'])
+                    if address.get('addressRegion'):
+                        parts.append(address['addressRegion'])
+                    location = ', '.join(parts)
+                elif isinstance(address, str):
+                    location = address
+                elif location_data.get('name'):
+                    location = location_data['name']
+            elif isinstance(location_data, str):
+                location = location_data
+            
+            # Extract description
+            description = data.get('description', '')
+            
+            return Event(
+                title=title,
+                start_date=start_date,
+                location=location,
+                description=description[:500] if description else '',
+                url=url
+            )
+            
+        except Exception as e:
+            print(f"Error parsing JSON-LD: {e}")
+            return None
+    
+    def _parse_google_calendar_link(self, url: str, title_fallback: str) -> Event:
+        """Parse Google Calendar add-to-calendar link parameters."""
+        try:
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            
+            # Extract text parameter which contains title and dates
+            text = params.get('text', [''])[0] or title_fallback
+            dates = params.get('dates', [''])[0]
+            location = params.get('location', [''])[0]
+            details = params.get('details', [''])[0]
+            
+            if not dates:
+                return None
+            
+            # Parse dates (format: 20260318T100000/20260318T150000)
+            date_parts = dates.split('/')
+            if not date_parts:
+                return None
+            
+            start_date_str = date_parts[0]
+            # Parse YYYYMMDDTHHMMSS format
+            try:
+                if 'T' in start_date_str:
+                    start_date = datetime.strptime(start_date_str, '%Y%m%dT%H%M%S')
+                else:
+                    start_date = datetime.strptime(start_date_str, '%Y%m%d')
+            except:
+                return None
+            
+            return Event(
+                title=text,
+                start_date=start_date,
+                location=location,
+                description=details[:500] if details else '',
+                url=url
+            )
+            
+        except Exception as e:
+            print(f"Error parsing calendar link: {e}")
+            return None
     
     def _parse_event_item(self, item) -> Event:
         """Parse a single event item from the HTML."""
