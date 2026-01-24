@@ -22,7 +22,12 @@ class ActiacScraper(BaseScraper):
         
         try:
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
             }
             response = requests.get(self.url, timeout=30, headers=headers)
             response.raise_for_status()
@@ -58,6 +63,17 @@ class ActiacScraper(BaseScraper):
             
             print(f"Found {len(events)} events from {self.name}")
             
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 403:
+                print(f"⚠️  {self.name} website is blocking automated access (403 Forbidden)")
+                print(f"   This is likely due to bot protection on their website.")
+                print(f"   The scraper code is ready, but the site needs to allow automated access.")
+                print(f"   Possible solutions:")
+                print(f"   - Contact {self.name} to whitelist the scraper")
+                print(f"   - Use a headless browser (e.g., Playwright/Selenium)")
+                print(f"   - Check if they provide an API or RSS feed")
+            else:
+                print(f"HTTP Error scraping {self.name}: {e}")
         except Exception as e:
             print(f"Error scraping {self.name}: {e}")
             import traceback
