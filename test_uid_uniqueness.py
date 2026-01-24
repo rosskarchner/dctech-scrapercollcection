@@ -5,6 +5,26 @@ from scrapers.base_scraper import Event
 from feed_generator import FeedGenerator
 import tempfile
 import os
+import re
+
+
+def unfold_ical_lines(content):
+    """Unfold iCal lines according to RFC 5545.
+    
+    Lines that start with a space or tab are continuations of the previous line.
+    """
+    lines = content.split('\n')
+    unfolded = []
+    for line in lines:
+        # Remove \r if present
+        line = line.rstrip('\r')
+        if line.startswith(' ') or line.startswith('\t'):
+            # This is a continuation line
+            if unfolded:
+                unfolded[-1] += line[1:]  # Append without the leading space
+        else:
+            unfolded.append(line)
+    return unfolded
 
 
 def test_uid_uniqueness():
@@ -51,10 +71,13 @@ def test_uid_uniqueness():
         # Parse the generated iCal file and extract all UIDs
         with open(output_file, 'r') as f:
             content = f.read()
-            
+        
+        # Unfold lines according to RFC 5545
+        unfolded_lines = unfold_ical_lines(content)
+        
         # Extract UIDs from the file
         uids = []
-        for line in content.split('\n'):
+        for line in unfolded_lines:
             if line.startswith('UID:'):
                 uid = line.replace('UID:', '').strip()
                 uids.append(uid)
@@ -99,14 +122,20 @@ def test_uid_stability():
         output_file1 = feed_gen.generate_feed(events, "Test", "test1.ics")
         with open(output_file1, 'r') as f:
             content1 = f.read()
+        
+        # Unfold lines
+        unfolded1 = unfold_ical_lines(content1)
             
         output_file2 = feed_gen.generate_feed(events, "Test", "test2.ics")
         with open(output_file2, 'r') as f:
             content2 = f.read()
         
+        # Unfold lines
+        unfolded2 = unfold_ical_lines(content2)
+        
         # Extract UIDs
-        uid1 = [line for line in content1.split('\n') if line.startswith('UID:')][0]
-        uid2 = [line for line in content2.split('\n') if line.startswith('UID:')][0]
+        uid1 = [line for line in unfolded1 if line.startswith('UID:')][0]
+        uid2 = [line for line in unfolded2 if line.startswith('UID:')][0]
         
         # UIDs should be the same (excluding the timestamp)
         # Note: We compare the UIDs themselves, not the entire file content

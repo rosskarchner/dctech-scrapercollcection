@@ -7,6 +7,25 @@ import tempfile
 import re
 
 
+def unfold_ical_lines(content):
+    """Unfold iCal lines according to RFC 5545.
+    
+    Lines that start with a space or tab are continuations of the previous line.
+    """
+    lines = content.split('\n')
+    unfolded = []
+    for line in lines:
+        # Remove \r if present
+        line = line.rstrip('\r')
+        if line.startswith(' ') or line.startswith('\t'):
+            # This is a continuation line
+            if unfolded:
+                unfolded[-1] += line[1:]  # Append without the leading space
+        else:
+            unfolded.append(line)
+    return unfolded
+
+
 def test_duplicate_uid_regression():
     """
     Test that simulates the original duplicate UID problem.
@@ -59,9 +78,16 @@ def test_duplicate_uid_regression():
         with open(output_file, 'r') as f:
             content = f.read()
         
+        # Unfold lines according to RFC 5545
+        unfolded_lines = unfold_ical_lines(content)
+        
         # Extract all UIDs
         uid_pattern = r'^UID:(.+)$'
-        uids = re.findall(uid_pattern, content, re.MULTILINE)
+        uids = []
+        for line in unfolded_lines:
+            match = re.match(uid_pattern, line)
+            if match:
+                uids.append(match.group(1))
         
         print(f"  Total events: {len(events)}")
         print(f"  Total UIDs found: {len(uids)}")
@@ -113,9 +139,16 @@ def test_uid_format():
         with open(output_file, 'r') as f:
             content = f.read()
         
+        # Unfold lines according to RFC 5545
+        unfolded_lines = unfold_ical_lines(content)
+        
         # Extract UID
         uid_pattern = r'^UID:(.+)$'
-        uids = re.findall(uid_pattern, content, re.MULTILINE)
+        uids = []
+        for line in unfolded_lines:
+            match = re.match(uid_pattern, line)
+            if match:
+                uids.append(match.group(1))
         
         assert len(uids) == 1, f"Expected 1 UID, found {len(uids)}"
         uid = uids[0]
@@ -127,13 +160,72 @@ def test_uid_format():
         assert '@' in uid, "UID should contain @ symbol for domain"
         assert len(uid) > 10, "UID should be reasonably long"
         
-        # MD5 hash is 32 characters, plus @dctech-events
+        # SHA-256 hash is 64 characters, plus @dctech-events
         expected_parts = uid.split('@')
         assert len(expected_parts) == 2, "UID should have format hash@domain"
-        assert len(expected_parts[0]) == 32, "Hash part should be 32 characters (MD5)"
+        assert len(expected_parts[0]) == 64, "Hash part should be 64 characters (SHA-256)"
         assert expected_parts[1] == 'dctech-events', "Domain should be dctech-events"
         
         print(f"  ✓ PASSED: UID format is RFC 5545 compliant")
+    
+    print()
+
+
+def test_uid_with_missing_fields():
+    """Test that UID generation handles missing optional fields."""
+    print("Testing UID generation with missing fields...")
+    
+    # Create events with missing optional fields
+    events = [
+        Event(
+            title="Event with no location or URL",
+            start_date=datetime(2026, 3, 18, 10, 0),
+            location="",
+            description="Test event",
+            url=""
+        ),
+        Event(
+            title="Event with location only",
+            start_date=datetime(2026, 3, 18, 12, 0),
+            location="Reston, VA",
+            description="Test event",
+            url=""
+        ),
+        Event(
+            title="Event with URL only",
+            start_date=datetime(2026, 3, 18, 14, 0),
+            location="",
+            description="Test event",
+            url="https://example.com/event"
+        ),
+    ]
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        feed_gen = FeedGenerator(output_dir=tmpdir)
+        output_file = feed_gen.generate_feed(events, "TestScraper", "test.ics")
+        
+        # Extract UIDs
+        with open(output_file, 'r') as f:
+            content = f.read()
+        
+        # Unfold lines according to RFC 5545
+        unfolded_lines = unfold_ical_lines(content)
+        
+        uid_pattern = r'^UID:(.+)$'
+        uids = []
+        for line in unfolded_lines:
+            match = re.match(uid_pattern, line)
+            if match:
+                uids.append(match.group(1))
+        
+        assert len(uids) == len(events), f"Expected {len(events)} UIDs, found {len(uids)}"
+        
+        # All UIDs should be unique
+        assert len(set(uids)) == len(uids), "All UIDs should be unique even with missing fields"
+        
+        print(f"  ✓ PASSED: Generated {len(uids)} unique UIDs with missing fields")
+        for i, uid in enumerate(uids, 1):
+            print(f"    {i}. {uid}")
     
     print()
 
@@ -147,6 +239,7 @@ def main():
     try:
         test_duplicate_uid_regression()
         test_uid_format()
+        test_uid_with_missing_fields()
         
         print("="*60)
         print("All regression tests passed! ✓")
