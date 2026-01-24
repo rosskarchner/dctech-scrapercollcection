@@ -31,7 +31,7 @@ class FeedGenerator:
         cal.add('x-wr-calname', f'{scraper_name} Events')
         cal.add('x-wr-caldesc', f'Events from {scraper_name}')
         
-        for event in events:
+        for index, event in enumerate(events):
             ical_event = ICalEvent()
             ical_event.add('summary', event.title)
             ical_event.add('dtstart', event.start_date)
@@ -47,9 +47,10 @@ class FeedGenerator:
                 ical_event.add('url', event.url)
             
             # Generate a unique ID for the event using deterministic hashing
-            # Include multiple fields to ensure uniqueness: title, date, location, and URL
+            # Include multiple fields to ensure uniqueness: title, date, location, URL, and index
             # Use SHA-256 for better collision resistance
-            uid_source = f"{event.title}|{event.start_date.isoformat()}|{event.location or ''}|{event.url or ''}|{scraper_name}"
+            # Index is included to ensure uniqueness even for events with identical attributes
+            uid_source = f"{event.title}|{event.start_date.isoformat()}|{event.location or ''}|{event.url or ''}|{scraper_name}|{index}"
             uid_hash = hashlib.sha256(uid_source.encode('utf-8')).hexdigest()
             uid = f"{uid_hash}@dctech-events"
             ical_event.add('uid', uid)
