@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List
 from scrapers.base_scraper import Event
 import os
+import hashlib
 
 
 class FeedGenerator:
@@ -45,8 +46,11 @@ class FeedGenerator:
             if event.url:
                 ical_event.add('url', event.url)
             
-            # Generate a unique ID for the event
-            uid = f"{event.start_date.strftime('%Y%m%d')}-{hash(event.title)}-{scraper_name}@dctech-events"
+            # Generate a unique ID for the event using deterministic hashing
+            # Include multiple fields to ensure uniqueness: title, date, location, and URL
+            uid_source = f"{event.title}|{event.start_date.isoformat()}|{event.location}|{event.url}|{scraper_name}"
+            uid_hash = hashlib.md5(uid_source.encode('utf-8')).hexdigest()
+            uid = f"{uid_hash}@dctech-events"
             ical_event.add('uid', uid)
             
             # Add timestamp
