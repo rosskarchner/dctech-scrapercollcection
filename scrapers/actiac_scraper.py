@@ -21,17 +21,31 @@ class ActiacScraper(BaseScraper):
         events = []
         
         try:
-            response = requests.get(self.url, timeout=30)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(self.url, timeout=30, headers=headers)
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
             
             # Find all event items on the page
-            # ACTIAC typically uses specific classes for event listings
-            event_items = soup.find_all('div', class_='views-row')
+            # Try multiple selectors based on ACTIAC's structure
+            event_items = []
+            
+            # Primary: Look for event-listing class
+            event_items = soup.find_all('div', class_=re.compile('event-listing|event-item'))
             
             if not event_items:
-                # Try alternative selectors
-                event_items = soup.find_all('article', class_='node')
+                # Try views-row (Drupal common)
+                event_items = soup.find_all('div', class_='views-row')
+            
+            if not event_items:
+                # Try article nodes
+                event_items = soup.find_all('article', class_=re.compile('node|event'))
+            
+            if not event_items:
+                # Fallback: Look for any div with h2/h3 containing event info
+                event_items = soup.find_all('div', class_=re.compile('view-content|content'))
             
             for item in event_items:
                 try:
@@ -46,36 +60,60 @@ class ActiacScraper(BaseScraper):
             
         except Exception as e:
             print(f"Error scraping {self.name}: {e}")
+            import traceback
+            traceback.print_exc()
         
         return events
     
     def _parse_event_item(self, item) -> Event:
         """Parse a single event item from the HTML."""
         # Extract title
-        title_elem = item.find(['h2', 'h3', 'h4'], class_=re.compile('title|heading'))
+        title_elem = item.find(['h1', 'h2', 'h3', 'h4'], class_=re.compile('title|heading|event-title|name'))
         if not title_elem:
-            title_elem = item.find(['h2', 'h3', 'h4'])
+            title_elem = item.find(['h1', 'h2', 'h3', 'h4'])
+        
+        if not title_elem:
+            # Sometimes title is in a link
+            title_elem = item.find('a', class_=re.compile('title|heading'))
         
         if not title_elem:
             return None
         
         title = title_elem.get_text(strip=True)
         
+        # Skip if title doesn't look like an event
+        if not title or len(title) < 5:
+            return None
+        
         # Extract date
         date_elem = item.find('time')
         if not date_elem:
-            date_elem = item.find(class_=re.compile('date|time'))
+            date_elem = item.find(class_=re.compile('date|time|event-date'))
         
-        if not date_elem:
-            # Look for date patterns in text
-            text = item.get_text()
-            date_match = re.search(r'(\w+ \d{1,2},? \d{4})', text)
-            if date_match:
-                date_str = date_match.group(1)
-            else:
-                return None
-        else:
+        date_str = None
+        if date_elem:
             date_str = date_elem.get_text(strip=True)
+            # Also check for datetime attribute
+            if not date_str and date_elem.get('datetime'):
+                date_str = date_elem.get('datetime')
+        
+        if not date_str:
+            # Look for date patterns in the entire item text
+            text = item.get_text()
+            # Match various date formats
+            date_patterns = [
+                r'(\w+\s+\d{1,2},?\s+\d{4})',  # March 18, 2026
+                r'(\d{1,2}/\d{1,2}/\d{2,4})',   # 3/18/2026
+                r'(\w+\s+\d{1,2})',             # March 18
+            ]
+            for pattern in date_patterns:
+                date_match = re.search(pattern, text)
+                if date_match:
+                    date_str = date_match.group(1)
+                    break
+        
+        if not date_str:
+            return None
         
         # Parse date
         start_date = self._parse_date(date_str)
@@ -84,15 +122,23 @@ class ActiacScraper(BaseScraper):
         
         # Extract location
         location = ""
-        location_elem = item.find(class_=re.compile('location|venue|address'))
+        location_elem = item.find(class_=re.compile('location|venue|address|event-location'))
         if location_elem:
             location = location_elem.get_text(strip=True)
         else:
             # Look for common location patterns
             text = item.get_text()
-            location_match = re.search(r'(Reston|Arlington|Washington|DC|Virginia|VA)', text, re.IGNORECASE)
-            if location_match:
-                location = location_match.group(1)
+            location_patterns = [
+                r'(Carahsoft Conference Center)',
+                r'(Reston[,\s]*VA)',
+                r'(Arlington[,\s]*VA)',
+                r'(Washington[,\s]*DC)',
+            ]
+            for pattern in location_patterns:
+                location_match = re.search(pattern, text, re.IGNORECASE)
+                if location_match:
+                    location = location_match.group(1)
+                    break
         
         # Extract URL
         url = ""
@@ -104,9 +150,9 @@ class ActiacScraper(BaseScraper):
         
         # Extract description
         description = ""
-        desc_elem = item.find(class_=re.compile('description|summary|body'))
+        desc_elem = item.find(class_=re.compile('description|summary|body|event-description'))
         if desc_elem:
-            description = desc_elem.get_text(strip=True)
+            description = desc_elem.get_text(strip=True)[:500]  # Limit to 500 chars
         
         return Event(
             title=title,
