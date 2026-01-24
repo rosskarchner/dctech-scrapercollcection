@@ -21,8 +21,7 @@ A Python framework for scraping multiple websites for events on a schedule with 
 
 1. **Enable GitHub Pages** (see [SETUP.md](SETUP.md) for detailed instructions)
    - Go to Settings → Pages
-   - Set source to "Deploy from a branch"
-   - Select branch: `main`, folder: `/docs`
+   - Set source to "GitHub Actions"
 
 2. **Run the scraper for the first time**
    - Go to Actions tab → "Scrape Events and Update Feeds"
