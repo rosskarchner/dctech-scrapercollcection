@@ -8,9 +8,7 @@ To enable GitHub Pages for hosting the iCal feeds, follow these steps:
 2. Click on **Settings** (top right)
 3. In the left sidebar, click **Pages**
 4. Under **Source**, select:
-   - Source: `Deploy from a branch`
-   - Branch: `main` (or your default branch)
-   - Folder: `/docs`
+   - Source: `GitHub Actions`
 5. Click **Save**
 
 ## 2. Wait for Deployment
@@ -73,12 +71,12 @@ Once the feeds are generated and published, users can subscribe to them in their
 
 ### Feeds not updating
 - Check the Actions tab for workflow run status
-- Ensure the workflow has write permissions (Settings → Actions → General → Workflow permissions → Read and write permissions)
+- Ensure GitHub Pages is enabled with "GitHub Actions" as the source (Settings → Pages)
 
 ### GitHub Pages not working
-- Verify that GitHub Pages is enabled in repository settings
-- Check that the `docs` folder exists and contains `index.html`
-- Wait a few minutes for GitHub to deploy the site
+- Verify that GitHub Pages is enabled in repository settings with "GitHub Actions" as the source
+- Check the workflow runs in the Actions tab for deployment errors
+- Wait a few minutes for GitHub to deploy the site after a successful workflow run
 
 ### No events found
 - The scrapers may need adjustment based on website changes
