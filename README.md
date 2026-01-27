@@ -4,7 +4,6 @@ A Python framework for scraping multiple websites for events on a schedule with 
 
 ## Supported Sites
 
-- **ACTIAC** - https://www.actiac.org/upcoming-events
 - **AFCEA** - https://www.afcea.org/events
 
 ## Features
@@ -29,7 +28,6 @@ A Python framework for scraping multiple websites for events on a schedule with 
 
 3. **Access your feeds**
    - Main page: `https://[username].github.io/dctech-scrapercollcection/`
-   - ACTIAC: `https://[username].github.io/dctech-scrapercollcection/actiac.ics`
    - AFCEA: `https://[username].github.io/dctech-scrapercollcection/afcea.ics`
 
 ### Local Development
@@ -49,7 +47,7 @@ The generated iCal feeds will be saved in the `output/` directory.
 
 ## Automated Runs
 
-The scrapers run automatically daily at 6 AM UTC via GitHub Actions. You can also trigger a manual run from the Actions tab.
+The scrapers run automatically nightly at 3 AM EST via GitHub Actions. You can also trigger a manual run from the Actions tab.
 
 ## Adding a New Scraper
 
@@ -84,7 +82,6 @@ dctech-scrapercollcection/
 ├── scrapers/
 │   ├── __init__.py
 │   ├── base_scraper.py    # Base scraper class and Event model
-│   ├── actiac_scraper.py  # ACTIAC scraper
 │   └── afcea_scraper.py   # AFCEA scraper
 ├── docs/
 │   └── index.html         # GitHub Pages landing page

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Main script to run all scrapers and generate iCal feeds."""
 import sys
-from scrapers import ActiacScraper, AfceaScraper
+from scrapers import AfceaScraper
 from feed_generator import FeedGenerator
 
 
@@ -9,7 +9,6 @@ def main():
     """Run all scrapers and generate feeds."""
     # Initialize scrapers
     scrapers = [
-        ActiacScraper(),
         AfceaScraper(),
     ]
     
