@@ -2,8 +2,8 @@ name: Scrape Events and Update Feeds
 
 on:
   schedule:
-    # Run daily at 6 AM UTC
-    - cron: '0 6 * * *'
+    # Run nightly at 3 AM EST (8 AM UTC)
+    - cron: '0 8 * * *'
   workflow_dispatch: # Allow manual triggering
 
 jobs:
