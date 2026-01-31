@@ -4,6 +4,7 @@ from datetime import datetime
 from scrapers.base_scraper import Event
 from scrapers.afcea_scraper import AfceaScraper
 from feed_generator import FeedGenerator
+from scrape import is_dmv_event
 
 
 def test_event_creation():
@@ -19,6 +20,47 @@ def test_event_creation():
     assert event.title == "Test Event"
     assert event.location == "Reston, VA"
     print("✓ Event creation works\n")
+
+
+def test_dmv_filtering():
+    """Test DMV location filtering."""
+    print("Testing DMV location filtering...")
+    
+    # Test events that should be included (MD, DC, VA)
+    dmv_events = [
+        Event("Event 1", datetime(2026, 3, 18), location="Reston, VA"),
+        Event("Event 2", datetime(2026, 3, 18), location="Washington, DC"),
+        Event("Event 3", datetime(2026, 3, 18), location="Ellicott City, MD"),
+        Event("Event 4", datetime(2026, 3, 18), location="Arlington VA"),
+        Event("Event 5", datetime(2026, 3, 18), location="Maryland"),
+        Event("Event 6", datetime(2026, 3, 18), location="Virginia"),
+        Event("Event 7", datetime(2026, 3, 18), location="Annapolis Junction, MD 20701"),
+        Event("Event 8", datetime(2026, 3, 18), location="National Defense University, Washington, DC"),
+    ]
+    
+    for event in dmv_events:
+        result = is_dmv_event(event)
+        assert result, f"Failed: {event.location} should be in DMV"
+        print(f"  ✓ '{event.location}' is correctly identified as DMV")
+    
+    # Test events that should be excluded
+    non_dmv_events = [
+        Event("Event 1", datetime(2026, 3, 18), location="San Diego, CA"),
+        Event("Event 2", datetime(2026, 3, 18), location="Colorado Springs, CO"),
+        Event("Event 3", datetime(2026, 3, 18), location="Tampa, FL"),
+        Event("Event 4", datetime(2026, 3, 18), location="Burlington, MA"),
+        Event("Event 5", datetime(2026, 3, 18), location="Ramstein, Germany"),
+        Event("Event 6", datetime(2026, 3, 18), location="Ottawa, ON"),
+        Event("Event 7", datetime(2026, 3, 18), location="Web"),
+        Event("Event 8", datetime(2026, 3, 18), location=""),
+    ]
+    
+    for event in non_dmv_events:
+        result = is_dmv_event(event)
+        assert not result, f"Failed: {event.location} should NOT be in DMV"
+        print(f"  ✓ '{event.location}' is correctly identified as non-DMV")
+    
+    print()
 
 
 def test_date_parsing():
@@ -80,6 +122,7 @@ def main():
     
     try:
         test_event_creation()
+        test_dmv_filtering()
         test_date_parsing()
         test_feed_generation()
         
