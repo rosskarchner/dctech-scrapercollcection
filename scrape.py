@@ -1,8 +1,41 @@
 #!/usr/bin/env python3
 """Main script to run all scrapers and generate iCal feeds."""
 import sys
+import re
 from scrapers import AfceaScraper
 from feed_generator import FeedGenerator
+
+
+def is_dmv_event(event) -> bool:
+    """Check if an event is in the DMV area (DC, MD, or VA).
+    
+    Args:
+        event: Event object with a location field
+    
+    Returns:
+        True if the event location contains DC, MD, or VA, False otherwise
+    """
+    if not event.location:
+        return False
+    
+    location = event.location.upper()
+    
+    # Check for state abbreviations or full names
+    # Use word boundaries to avoid false matches (e.g., "MADE" containing "MD")
+    patterns = [
+        r'\bDC\b',           # District of Columbia
+        r'\bMD\b',           # Maryland
+        r'\bVA\b',           # Virginia
+        r'\bMARYLAND\b',
+        r'\bVIRGINIA\b',
+        r'\bWASHINGTON,?\s*DC\b',
+    ]
+    
+    for pattern in patterns:
+        if re.search(pattern, location):
+            return True
+    
+    return False
 
 
 def main():
@@ -27,9 +60,16 @@ def main():
         try:
             events = scraper.scrape()
             
+            # Filter events to only include MD, DC, or VA locations
+            filtered_events = [event for event in events if is_dmv_event(event)]
+            
             if events:
-                print(f"\nExtracted events:")
-                for i, event in enumerate(events, 1):
+                print(f"\nExtracted {len(events)} total events")
+                print(f"Filtered to {len(filtered_events)} events in MD, DC, or VA\n")
+            
+            if filtered_events:
+                print(f"Events in MD, DC, or VA:")
+                for i, event in enumerate(filtered_events, 1):
                     print(f"{i}. {event.title}")
                     print(f"   Date: {event.start_date.strftime('%B %d, %Y')}")
                     print(f"   Location: {event.location}")
@@ -37,10 +77,10 @@ def main():
                 
                 # Generate iCal feed
                 filename = scraper.get_feed_filename()
-                feed_gen.generate_feed(events, scraper.name, filename)
-                total_events += len(events)
+                feed_gen.generate_feed(filtered_events, scraper.name, filename)
+                total_events += len(filtered_events)
             else:
-                print(f"No events found for {scraper.name}")
+                print(f"No events found in MD, DC, or VA for {scraper.name}")
         
         except Exception as e:
             print(f"Error processing {scraper.name}: {e}")
