@@ -28,6 +28,14 @@ jobs:
         with:
           python-version: '3.11'
       
+      - name: Restore HTML cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/html
+          key: html-cache-${{ hashFiles('.cache/html/metadata.json') }}-${{ github.run_id }}
+          restore-keys: |
+            html-cache-
+      
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

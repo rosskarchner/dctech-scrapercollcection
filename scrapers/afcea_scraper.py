@@ -2,7 +2,7 @@
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 import re
 from .base_scraper import BaseScraper, Event
 
@@ -14,11 +14,38 @@ class AfceaScraper(BaseScraper):
     # AFCEA currently has ~12 pages, so 50 provides a generous buffer
     MAX_PAGES = 50
     
-    def __init__(self):
+    def __init__(self, cache=None):
         super().__init__(
             name="AFCEA",
             url="https://www.afcea.org/events"
         )
+        self.cache = cache
+    
+    def _fetch_url(self, url: str, headers: dict) -> bytes:
+        """Fetch URL with caching support.
+        
+        Args:
+            url: URL to fetch
+            headers: HTTP headers to use
+        
+        Returns:
+            Response content as bytes
+        """
+        # Try to get from cache first
+        if self.cache:
+            cached_content = self.cache.get(url)
+            if cached_content is not None:
+                return cached_content
+        
+        # Cache miss - fetch from network
+        response = requests.get(url, timeout=30, headers=headers)
+        response.raise_for_status()
+        
+        # Store in cache if available
+        if self.cache:
+            self.cache.set(url, response.content)
+        
+        return response.content
     
     def scrape(self) -> List[Event]:
         """Scrape events from AFCEA website with pagination support."""
@@ -41,9 +68,8 @@ class AfceaScraper(BaseScraper):
                 
                 print(f"Scraping page {page_num + 1}: {page_url}")
                 
-                response = requests.get(page_url, timeout=30, headers=headers)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.content, 'html.parser')
+                content = self._fetch_url(page_url, headers)
+                soup = BeautifulSoup(content, 'html.parser')
                 
                 # Find all event items on the page
                 # Try multiple selectors based on AFCEA's structure
