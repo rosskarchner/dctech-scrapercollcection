@@ -17,50 +17,87 @@ class AfceaScraper(BaseScraper):
         )
     
     def scrape(self) -> List[Event]:
-        """Scrape events from AFCEA website."""
+        """Scrape events from AFCEA website with pagination support."""
         events = []
         
         try:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             }
-            response = requests.get(self.url, timeout=30, headers=headers)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
             
-            # Find all event items on the page
-            # Try multiple selectors based on AFCEA's structure
-            event_items = []
+            # Start with the first page
+            page_num = 0
+            max_pages = 50  # Safety limit to avoid infinite loops
             
-            # Primary: Look for event-listing/event-item class
-            event_items = soup.find_all('div', class_=re.compile('event-listing|event-item|event'))
+            while page_num < max_pages:
+                # Construct URL for the current page
+                if page_num == 0:
+                    page_url = self.url
+                else:
+                    page_url = f"{self.url}?page={page_num}"
+                
+                print(f"Scraping page {page_num + 1}: {page_url}")
+                
+                response = requests.get(page_url, timeout=30, headers=headers)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Find all event items on the page
+                # Try multiple selectors based on AFCEA's structure
+                event_items = []
+                
+                # Primary: Look for event-listing/event-item class
+                event_items = soup.find_all('div', class_=re.compile('event-listing|event-item|event'))
+                
+                if not event_items:
+                    # Try calendar items
+                    event_items = soup.find_all('div', class_=re.compile('calendar|cal-item'))
+                
+                if not event_items:
+                    # Try article elements
+                    event_items = soup.find_all('article')
+                
+                if not event_items:
+                    # Try views-row (common CMS pattern)
+                    event_items = soup.find_all('div', class_='views-row')
+                
+                if not event_items:
+                    # Fallback: Look for any container with event information
+                    event_items = soup.find_all('div', class_=re.compile('view-content|content|list'))
+                
+                # If no events found on this page, we've reached the end
+                if not event_items:
+                    print(f"No events found on page {page_num + 1}, stopping pagination")
+                    break
+                
+                page_event_count = 0
+                for item in event_items:
+                    try:
+                        event = self._parse_event_item(item)
+                        if event:
+                            events.append(event)
+                            page_event_count += 1
+                    except Exception as e:
+                        print(f"Error parsing event item: {e}")
+                        continue
+                
+                print(f"Found {page_event_count} events on page {page_num + 1}")
+                
+                # Check if there's a next page
+                pager = soup.find('nav', class_='pager')
+                if pager:
+                    next_link = pager.find('a', rel='next')
+                    if next_link and next_link.get('href'):
+                        page_num += 1
+                    else:
+                        print("No next page found, stopping pagination")
+                        break
+                else:
+                    # No pager found, this is likely a single-page result
+                    print("No pagination found, stopping")
+                    break
             
-            if not event_items:
-                # Try calendar items
-                event_items = soup.find_all('div', class_=re.compile('calendar|cal-item'))
-            
-            if not event_items:
-                # Try article elements
-                event_items = soup.find_all('article')
-            
-            if not event_items:
-                # Try views-row (common CMS pattern)
-                event_items = soup.find_all('div', class_='views-row')
-            
-            if not event_items:
-                # Fallback: Look for any container with event information
-                event_items = soup.find_all('div', class_=re.compile('view-content|content|list'))
-            
-            for item in event_items:
-                try:
-                    event = self._parse_event_item(item)
-                    if event:
-                        events.append(event)
-                except Exception as e:
-                    print(f"Error parsing event item: {e}")
-                    continue
-            
-            print(f"Found {len(events)} events from {self.name}")
+            print(f"Found {len(events)} total events from {self.name} across {page_num + 1} pages")
             
         except Exception as e:
             print(f"Error scraping {self.name}: {e}")
