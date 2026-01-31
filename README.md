@@ -10,6 +10,7 @@ A Python framework for scraping multiple websites for events on a schedule with 
 
 - Automated daily scraping via GitHub Actions
 - iCal (.ics) feed generation for each site
+- **Location filtering** - Only includes events in MD, DC, or VA (DMV area)
 - Easy to extend with new scrapers
 - GitHub Pages hosting for feeds
 - Robust HTML parsing with multiple fallback selectors
@@ -95,6 +96,15 @@ dctech-scrapercollcection/
     └── workflows/
         └── scrape.yml    # GitHub Actions workflow
 ```
+
+## Location Filtering
+
+The scraper automatically filters events to only include those in the DMV (DC, Maryland, Virginia) area. Events are included if their location contains:
+- **DC** - District of Columbia or Washington, DC
+- **MD** - Maryland (state abbreviation or full name)
+- **VA** - Virginia (state abbreviation or full name)
+
+Events from other states or countries are excluded from the generated feeds. This filtering is applied in `scrape.py` using the `is_dmv_event()` function.
 
 ## Subscribing to Feeds
 
