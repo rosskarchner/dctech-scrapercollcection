@@ -2,8 +2,16 @@
 """Main script to run all scrapers and generate iCal feeds."""
 import sys
 import re
+import logging
 from scrapers import AfceaScraper
 from feed_generator import FeedGenerator
+from html_cache import HTMLCache
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s'
+)
 
 
 def is_dmv_event(event) -> bool:
@@ -40,9 +48,19 @@ def is_dmv_event(event) -> bool:
 
 def main():
     """Run all scrapers and generate feeds."""
-    # Initialize scrapers
+    # Initialize HTML cache
+    cache = HTMLCache(cache_dir=".cache/html")
+    
+    # Clear expired entries at the start
+    cache.clear_expired()
+    
+    # Print cache statistics
+    stats = cache.get_stats()
+    print(f"Cache initialized: {stats['valid_entries']} valid entries, {stats['total_size_bytes']} bytes")
+    
+    # Initialize scrapers with cache
     scrapers = [
-        AfceaScraper(),
+        AfceaScraper(cache=cache),
     ]
     
     # Initialize feed generator
