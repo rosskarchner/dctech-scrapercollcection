@@ -1,6 +1,9 @@
 name: Scrape Events and Update Feeds
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Run nightly at 3 AM EST (8 AM UTC)
     - cron: '0 8 * * *'
