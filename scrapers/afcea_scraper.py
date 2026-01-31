@@ -10,6 +10,10 @@ from .base_scraper import BaseScraper, Event
 class AfceaScraper(BaseScraper):
     """Scraper for AFCEA events."""
     
+    # Maximum number of pages to scrape as a safety limit to prevent infinite loops
+    # AFCEA currently has ~12 pages, so 50 provides a generous buffer
+    MAX_PAGES = 50
+    
     def __init__(self):
         super().__init__(
             name="AFCEA",
@@ -27,9 +31,8 @@ class AfceaScraper(BaseScraper):
             
             # Start with the first page
             page_num = 0
-            max_pages = 50  # Safety limit to avoid infinite loops
             
-            while page_num < max_pages:
+            while page_num < self.MAX_PAGES:
                 # Construct URL for the current page
                 if page_num == 0:
                     page_url = self.url
@@ -65,11 +68,6 @@ class AfceaScraper(BaseScraper):
                     # Fallback: Look for any container with event information
                     event_items = soup.find_all('div', class_=re.compile('view-content|content|list'))
                 
-                # If no events found on this page, we've reached the end
-                if not event_items:
-                    print(f"No events found on page {page_num + 1}, stopping pagination")
-                    break
-                
                 page_event_count = 0
                 for item in event_items:
                     try:
@@ -93,8 +91,11 @@ class AfceaScraper(BaseScraper):
                         print("No next page found, stopping pagination")
                         break
                 else:
-                    # No pager found, this is likely a single-page result
-                    print("No pagination found, stopping")
+                    # No pager found, this is likely a single-page result or we've reached the end
+                    if not event_items:
+                        print(f"No pagination and no events found on page {page_num + 1}, stopping")
+                    else:
+                        print("No pagination found, assuming single-page result")
                     break
             
             print(f"Found {len(events)} total events from {self.name} across {page_num + 1} pages")
