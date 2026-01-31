@@ -32,7 +32,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/html
-          key: html-cache-${{ hashFiles('.cache/html/metadata.json') }}-${{ github.run_id }}
+          key: html-cache-${{ github.run_number }}
           restore-keys: |
             html-cache-
       

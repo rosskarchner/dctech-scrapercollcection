@@ -2,9 +2,16 @@
 """Main script to run all scrapers and generate iCal feeds."""
 import sys
 import re
+import logging
 from scrapers import AfceaScraper
 from feed_generator import FeedGenerator
 from html_cache import HTMLCache
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(message)s'
+)
 
 
 def is_dmv_event(event) -> bool:

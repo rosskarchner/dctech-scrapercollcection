@@ -2,9 +2,13 @@
 import os
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict
 from pathlib import Path
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 
 class HTMLCache:
@@ -95,7 +99,7 @@ class HTMLCache:
         try:
             with open(cache_path, 'rb') as f:
                 content = f.read()
-            print(f"Cache HIT: {url}")
+            logger.info(f"Cache HIT: {url}")
             return content
         except IOError:
             return None
@@ -122,7 +126,7 @@ class HTMLCache:
         }
         self._save_metadata()
         
-        print(f"Cache SET: {url}")
+        logger.info(f"Cache SET: {url}")
     
     def clear_expired(self):
         """Remove all expired cache entries."""
@@ -136,7 +140,7 @@ class HTMLCache:
         
         if expired_keys:
             self._save_metadata()
-            print(f"Cleared {len(expired_keys)} expired cache entries")
+            logger.info(f"Cleared {len(expired_keys)} expired cache entries")
     
     def get_stats(self) -> Dict:
         """Get cache statistics.
