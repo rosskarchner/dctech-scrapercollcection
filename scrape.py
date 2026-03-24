@@ -3,7 +3,7 @@
 import sys
 import re
 import logging
-from scrapers import AfceaScraper
+from scrapers import AfceaScraper, AigaDcScraper, DefenseScoopScraper
 from feed_generator import FeedGenerator
 from html_cache import HTMLCache
 
@@ -32,11 +32,13 @@ def is_dmv_event(event) -> bool:
     # Use word boundaries to avoid false matches (e.g., "MADE" containing "MD")
     patterns = [
         r'\bDC\b',           # District of Columbia
+        r'\bD\.C\.\b',       # D.C. (with periods)
         r'\bMD\b',           # Maryland
         r'\bVA\b',           # Virginia
         r'\bMARYLAND\b',
         r'\bVIRGINIA\b',
-        r'\bWASHINGTON,?\s*DC\b',
+        r'\bWASHINGTON,?\s*D\.?C\.?\b',
+        r'\bDISTRICT\s+OF\s+COLUMBIA\b',
     ]
     
     for pattern in patterns:
@@ -61,6 +63,8 @@ def main():
     # Initialize scrapers with cache
     scrapers = [
         AfceaScraper(cache=cache),
+        AigaDcScraper(cache=cache),
+        DefenseScoopScraper(cache=cache),
     ]
     
     # Initialize feed generator
