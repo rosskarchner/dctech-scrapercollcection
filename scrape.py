@@ -14,15 +14,21 @@ logging.basicConfig(
 )
 
 
-def is_dmv_event(event) -> bool:
+def is_dmv_event(event, organizer_name: str = None) -> bool:
     """Check if an event is in the DMV area (DC, MD, or VA).
     
     Args:
         event: Event object with a location field
+        organizer_name: Name of the scraper/organizer (optional)
     
     Returns:
         True if the event location contains DC, MD, or VA, False otherwise
     """
+    # Special case: If organizer is Refresh DC and no location specified,
+    # assume it's in DC since that's where Refresh DC is based
+    if organizer_name == "Refresh DC" and not event.location:
+        return True
+    
     if not event.location:
         return False
     
@@ -84,7 +90,7 @@ def main():
             events = scraper.scrape()
             
             # Filter events to only include MD, DC, or VA locations
-            filtered_events = [event for event in events if is_dmv_event(event)]
+            filtered_events = [event for event in events if is_dmv_event(event, scraper.name)]
             
             if events:
                 print(f"\nExtracted {len(events)} total events")
