@@ -32,13 +32,12 @@ class EventbriteScraper(BaseScraper):
         """Scrape events from Eventbrite using the showmore endpoint."""
         events = []
         
-        for evt_type in ["future", "past"]:
-            try:
-                page_events = self._scrape_events_by_type(evt_type)
-                events.extend(page_events)
-            except Exception as e:
-                print(f"Error scraping {evt_type} events: {e}")
-                continue
+        try:
+            # Only scrape future events
+            page_events = self._scrape_events_by_type("future")
+            events.extend(page_events)
+        except Exception as e:
+            print(f"Error scraping future events: {e}")
         
         return events
     
