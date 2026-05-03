@@ -5,6 +5,10 @@ A Python framework for scraping multiple websites for events on a schedule with 
 ## Supported Sites
 
 - **AFCEA** - https://www.afcea.org/events
+- **AIGA DC** - https://dc.aiga.org/upcoming-events
+- **DefenseScoop** - https://defensescoop.com/attend
+- **Refresh DC** - https://www.eventbrite.com/o/1039770801
+- **NOVAAR** - https://novaar.org/drupal10/calendar_event
 
 ## Features
 
