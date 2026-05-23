@@ -9,6 +9,7 @@ A Python framework for scraping multiple websites for events on a schedule with 
 - **DefenseScoop** - https://defensescoop.com/attend
 - **Refresh DC** - https://www.eventbrite.com/o/1039770801
 - **NOVAAR** - https://novaar.org/drupal10/calendar_event
+- **Washington Technology** - https://www.washingtontechnology.com/events/
 
 ## Features
 

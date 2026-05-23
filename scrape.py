@@ -3,7 +3,14 @@
 import sys
 import re
 import logging
-from scrapers import AfceaScraper, AigaDcScraper, DefenseScoopScraper, EventbriteScraper, NovaaScraper
+from scrapers import (
+    AfceaScraper,
+    AigaDcScraper,
+    DefenseScoopScraper,
+    EventbriteScraper,
+    NovaaScraper,
+    WashingtonTechnologyScraper,
+)
 from feed_generator import FeedGenerator
 from html_cache import HTMLCache
 
@@ -73,6 +80,7 @@ def main():
         DefenseScoopScraper(cache=cache),
         EventbriteScraper(organizer_id="1039770801", organizer_name="Refresh DC", cache=cache),
         NovaaScraper(cache=cache),
+        WashingtonTechnologyScraper(cache=cache),
     ]
     
     # Initialize feed generator
