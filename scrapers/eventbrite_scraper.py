@@ -3,19 +3,33 @@ import requests
 from datetime import datetime
 from typing import List, Optional
 import json
+import re
 from .base_scraper import BaseScraper, Event
 
 
 class EventbriteScraper(BaseScraper):
     """Scraper for Eventbrite events from a specific organizer.
-    
-    Uses the same endpoint as the eb-to-ical converter:
-    https://www.eventbrite.com/org/{org_id}/showmore/
+
+    Reads the organizer's profile page (e.g.
+    https://www.eventbrite.com/o/{org_id}) and parses the upcoming events
+    out of its embedded __NEXT_DATA__ JSON. Eventbrite's old
+    /org/{id}/showmore/ JSON endpoint (previously used here) now returns a
+    403 from CloudFront for non-browser requests; the profile page itself
+    still renders normally and already contains the same event data
+    server-side.
     """
-    
+
+    HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+    }
+
+    NEXT_DATA_RE = re.compile(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S
+    )
+
     def __init__(self, organizer_id: str, organizer_name: str = "Eventbrite", cache=None):
         """Initialize Eventbrite scraper.
-        
+
         Args:
             organizer_id: Eventbrite organizer ID
             organizer_name: Display name for the organizer
@@ -27,149 +41,108 @@ class EventbriteScraper(BaseScraper):
         )
         self.organizer_id = organizer_id
         self.cache = cache
-    
+
+    def _fetch_url(self, url: str, headers: dict) -> bytes:
+        """Fetch URL with caching support."""
+        if self.cache:
+            cached_content = self.cache.get(url)
+            if cached_content is not None:
+                return cached_content
+
+        response = requests.get(url, timeout=30, headers=headers)
+        response.raise_for_status()
+
+        if self.cache:
+            self.cache.set(url, response.content)
+
+        return response.content
+
     def scrape(self) -> List[Event]:
-        """Scrape events from Eventbrite using the showmore endpoint."""
+        """Scrape upcoming events from the organizer's profile page."""
         events = []
-        
+
         try:
-            # Only scrape future events
-            page_events = self._scrape_events_by_type("future")
-            events.extend(page_events)
-        except Exception as e:
-            print(f"Error scraping future events: {e}")
-        
-        return events
-    
-    def _scrape_events_by_type(self, evt_type: str) -> List[Event]:
-        """Scrape events of a specific type (future or past)."""
-        events = []
-        page = 1
-        
-        while page:
-            try:
-                # Use the same endpoint as eb-to-ical
-                eb_url = f"https://www.eventbrite.com/org/{self.organizer_id}/showmore/?type={evt_type}&page={page}"
-                
-                print(f"Scraping {evt_type} events, page {page}: {eb_url}")
-                
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-                
-                response = requests.get(eb_url, timeout=30, headers=headers)
-                response.raise_for_status()
-                
-                # Parse JSON response
+            print(f"Scraping organizer page: {self.url}")
+            content = self._fetch_url(self.url, self.HEADERS)
+
+            match = self.NEXT_DATA_RE.search(content.decode('utf-8', errors='ignore'))
+            if not match:
+                print(f"Could not find event data on organizer page {self.url}")
+                return events
+
+            data = json.loads(match.group(1))
+            page_props = data.get('props', {}).get('pageProps', {})
+
+            if page_props.get('upcomingEventsFailed'):
+                print(f"Eventbrite reported a failure loading events for organizer {self.organizer_id}")
+                return events
+
+            if page_props.get('hasMoreUpcoming'):
+                print(
+                    f"Warning: organizer {self.organizer_id} has more upcoming events than "
+                    "this page shows; pagination isn't implemented, so some events may be missing"
+                )
+
+            raw_events = page_props.get('upcomingEvents', [])
+            print(f"Found {len(raw_events)} upcoming events")
+
+            for raw_event in raw_events:
                 try:
-                    data = response.json()
-                except json.JSONDecodeError as e:
-                    print(f"Failed to parse JSON from {eb_url}: {e}")
-                    print(f"Response text: {response.text[:500]}")
-                    break
-                
-                # Extract events from response
-                if 'data' not in data or 'events' not in data['data']:
-                    print(f"No events found in response for {evt_type}, page {page}")
-                    break
-                
-                page_events = data['data']['events']
-                print(f"Found {len(page_events)} events on {evt_type} page {page}")
-                
-                # Parse each event
-                for event_data in page_events:
-                    try:
-                        event = self._parse_event_from_json(event_data)
-                        if event:
-                            events.append(event)
-                    except Exception as e:
-                        print(f"Error parsing event: {e}")
-                        continue
-                
-                # Check if there's a next page
-                has_next = data.get('data', {}).get('has_next_page', False)
-                page = (page + 1) if has_next else None
-                
-            except requests.RequestException as e:
-                print(f"Request error scraping {evt_type} events: {e}")
-                break
-            except Exception as e:
-                print(f"Unexpected error scraping {evt_type} events: {e}")
-                break
-        
-        print(f"Total {evt_type} events scraped: {len(events)}")
+                    event = self._parse_event(raw_event)
+                    if event:
+                        events.append(event)
+                except Exception as e:
+                    print(f"Error parsing event: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"Error scraping {self.name}: {e}")
+
         return events
-    
-    def _parse_event_from_json(self, event_data: dict) -> Optional[Event]:
-        """Parse an event from Eventbrite JSON response."""
-        try:
-            title = event_data.get('name', {}).get('text', '')
-            if not title:
-                return None
-            
-            # Parse start date
-            start_str = event_data.get('start', {}).get('utc')
-            if not start_str:
-                return None
-            
-            start_date = self._parse_iso_datetime(start_str)
-            if not start_date:
-                return None
-            
-            # Parse end date
-            end_str = event_data.get('end', {}).get('utc')
-            end_date = self._parse_iso_datetime(end_str) if end_str else start_date
-            
-            # Extract location
-            location = ""
-            venue = event_data.get('venue', {})
-            if venue:
-                venue_name = venue.get('name', '')
-                venue_addr = venue.get('address', {}).get('localized_address_display', '')
-                location_parts = []
-                if venue_name:
-                    location_parts.append(venue_name)
-                if venue_addr:
-                    location_parts.append(venue_addr)
-                location = ', '.join(location_parts)
-            
-            # Extract description and URL
-            description = event_data.get('description', {}).get('text', '')[:500]
-            url = event_data.get('url', '')
-            
-            return Event(
-                title=title,
-                start_date=start_date,
-                end_date=end_date,
-                location=location,
-                description=description,
-                url=url
-            )
-        except Exception as e:
-            print(f"Error parsing event from JSON: {e}")
-            return None
-    
-    def _parse_iso_datetime(self, datetime_str: str) -> Optional[datetime]:
-        """Parse ISO 8601 datetime string."""
-        try:
-            if not datetime_str:
-                return None
-            
-            # Handle ISO 8601 format: "2026-05-01T14:00:00Z"
-            if datetime_str.endswith('Z'):
-                datetime_str = datetime_str[:-1] + '+00:00'
-            
-            # Try parsing with timezone
-            try:
-                return datetime.fromisoformat(datetime_str)
-            except ValueError:
-                # Try without timezone
-                if 'T' in datetime_str:
-                    return datetime.fromisoformat(datetime_str.split('+')[0].split('Z')[0])
-                else:
-                    return datetime.strptime(datetime_str, '%Y-%m-%d')
-        except Exception as e:
-            print(f"Error parsing datetime '{datetime_str}': {e}")
+
+    def _parse_event(self, raw_event: dict) -> Optional[Event]:
+        """Parse a single event from the organizer page's embedded JSON."""
+        if raw_event.get('is_cancelled'):
             return None
 
+        title = raw_event.get('name', '')
+        if not title:
+            return None
 
+        start_date = self._combine_date_time(raw_event.get('start_date'), raw_event.get('start_time'))
+        if not start_date:
+            return None
+
+        end_date = self._combine_date_time(raw_event.get('end_date'), raw_event.get('end_time')) or start_date
+
+        location = ""
+        venue = raw_event.get('primary_venue')
+        if venue:
+            venue_name = venue.get('name', '')
+            venue_addr = venue.get('address', {}).get('localized_address_display', '')
+            location = ', '.join(part for part in (venue_name, venue_addr) if part)
+
+        description = (raw_event.get('summary') or '')[:500]
+        url = raw_event.get('url', '')
+
+        return Event(
+            title=title,
+            start_date=start_date,
+            end_date=end_date,
+            location=location,
+            description=description,
+            url=url
+        )
+
+    @staticmethod
+    def _combine_date_time(date_str: Optional[str], time_str: Optional[str]):
+        """Combine Eventbrite's separate date/time fields. Returns a
+        datetime when a time is known, otherwise just a date."""
+        if not date_str:
+            return None
+        try:
+            if time_str:
+                return datetime.strptime(f"{date_str} {time_str}", '%Y-%m-%d %H:%M:%S')
+            return datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return None

@@ -112,13 +112,18 @@ def main():
                     print(f"   Date: {event.start_date.strftime('%B %d, %Y')}")
                     print(f"   Location: {event.location}")
                     print()
-                
-                # Generate iCal feed
-                filename = scraper.get_feed_filename()
-                feed_gen.generate_feed(filtered_events, scraper.name, filename)
-                total_events += len(filtered_events)
             else:
                 print(f"No events found in MD, DC, or VA for {scraper.name}")
+
+            # Always (re)generate the feed, even with zero events. The docs/
+            # directory isn't committed to git, so each workflow run starts
+            # from a clean checkout - skipping this when a scraper comes up
+            # empty (e.g. a site temporarily blocking requests) would make
+            # the previously-published feed silently 404 instead of just
+            # going stale.
+            filename = scraper.get_feed_filename()
+            feed_gen.generate_feed(filtered_events, scraper.name, filename)
+            total_events += len(filtered_events)
         
         except Exception as e:
             print(f"Error processing {scraper.name}: {e}")
