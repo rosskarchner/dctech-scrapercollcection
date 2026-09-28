@@ -2,14 +2,22 @@
 from icalendar import Calendar, Event as ICalEvent
 from datetime import datetime
 from typing import List
+from zoneinfo import ZoneInfo
 from scrapers.base_scraper import Event
 import os
 import hashlib
 
+# All scraped events are for DC-area happenings; scrapers store naive
+# datetimes representing this local time. Without an explicit timezone,
+# the iCal spec treats them as "floating" times, and calendar clients
+# (e.g. GNOME Calendar) fall back to interpreting them as UTC, shifting
+# events by several hours (a midnight event appears at 8pm the day before).
+EVENT_TIMEZONE = ZoneInfo("America/New_York")
+
 
 class FeedGenerator:
     """Generate iCal feeds from events."""
-    
+
     def __init__(self, output_dir: str = "output"):
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
@@ -30,12 +38,13 @@ class FeedGenerator:
         cal.add('version', '2.0')
         cal.add('x-wr-calname', f'{scraper_name} Events')
         cal.add('x-wr-caldesc', f'Events from {scraper_name}')
-        
+        cal.add('x-wr-timezone', str(EVENT_TIMEZONE))
+
         for event in events:
             ical_event = ICalEvent()
             ical_event.add('summary', event.title)
-            ical_event.add('dtstart', event.start_date)
-            ical_event.add('dtend', event.end_date)
+            ical_event.add('dtstart', self._localize(event.start_date))
+            ical_event.add('dtend', self._localize(event.end_date))
             
             if event.location:
                 ical_event.add('location', event.location)
@@ -66,3 +75,10 @@ class FeedGenerator:
         
         print(f"Generated feed: {output_path} with {len(events)} events")
         return output_path
+
+    @staticmethod
+    def _localize(dt: datetime) -> datetime:
+        """Attach the DC-area timezone to a naive datetime, leaving aware ones untouched."""
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=EVENT_TIMEZONE)
+        return dt
