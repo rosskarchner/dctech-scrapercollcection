@@ -1,26 +1,42 @@
 """Scraper for AFCEA events."""
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
-from typing import List, Optional
+from datetime import datetime, time
+from typing import List, Optional, Tuple
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 import re
+from icalendar import Calendar as ICalCalendar
 from .base_scraper import BaseScraper, Event
 
 
 class AfceaScraper(BaseScraper):
     """Scraper for AFCEA events."""
-    
+
     # Maximum number of pages to scrape as a safety limit to prevent infinite loops
     # AFCEA currently has ~12 pages, so 50 provides a generous buffer
     MAX_PAGES = 50
-    
+
+    EASTERN = ZoneInfo("America/New_York")
+
+    HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+
+    # Matches a start/end time pair such as "4:30 pm - 7:00 pm" or "11:15am thru 1:00pm"
+    TIME_RANGE_RE = re.compile(
+        r'(\d{1,2}:\d{2}\s*[AaPp]\.?[Mm]\.?)\s*(?:-|–|—|~|to|thru)\s*(\d{1,2}:\d{2}\s*[AaPp]\.?[Mm]\.?)'
+    )
+    # Matches a single time, e.g. "1:00 PM" in "1:00 PM ET"
+    SINGLE_TIME_RE = re.compile(r'(\d{1,2}:\d{2}\s*[AaPp]\.?[Mm]\.?)')
+
     def __init__(self, cache=None):
         super().__init__(
             name="AFCEA",
             url="https://www.afcea.org/events"
         )
         self.cache = cache
-    
+
     def _fetch_url(self, url: str, headers: dict) -> bytes:
         """Fetch URL with caching support.
         
@@ -52,10 +68,8 @@ class AfceaScraper(BaseScraper):
         events = []
         
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-            
+            headers = self.HEADERS
+
             # Start with the first page
             page_num = 0
             
@@ -222,15 +236,115 @@ class AfceaScraper(BaseScraper):
         desc_elem = item.find(class_=re.compile('description|summary|body|event-description'))
         if desc_elem:
             description = desc_elem.get_text(strip=True)[:500]  # Limit to 500 chars
-        
+
+        # Find a real time-of-day if one exists, rather than assuming midnight.
+        # Prefer the listing page's own time text, then fall back to fetching
+        # the precise time from the event's Swoogo page. If neither is
+        # available, keep just the date rather than fabricating a time.
+        end_date = start_date
+        time_range = self._extract_time_range(item)
+        if time_range:
+            start_time, end_time = time_range
+            start_date = datetime.combine(start_date.date(), start_time)
+            end_date = datetime.combine(start_date.date(), end_time) if end_time else start_date
+        elif url and 'swoogo.com' in url:
+            swoogo_times = self._fetch_swoogo_times(url)
+            if swoogo_times:
+                start_date, end_date = swoogo_times
+            else:
+                start_date = start_date.date()
+                end_date = start_date
+        else:
+            start_date = start_date.date()
+            end_date = start_date
+
         return Event(
             title=title,
             start_date=start_date,
+            end_date=end_date,
             location=location,
             description=description,
             url=url
         )
     
+    def _extract_time_range(self, item) -> Optional[Tuple[time, Optional[time]]]:
+        """Look for an explicit time-of-day on the listing page itself, e.g.
+        '4:30 pm - 7:00 pm', '11:15am thru 1:00pm', or '1:00 PM ET'."""
+        time_elem = item.find(class_=re.compile('field--name-time'))
+        if not time_elem:
+            return None
+
+        text = time_elem.get_text(' ', strip=True)
+
+        match = self.TIME_RANGE_RE.search(text)
+        if match:
+            start_time = self._parse_time(match.group(1))
+            if start_time:
+                return start_time, self._parse_time(match.group(2))
+            return None
+
+        match = self.SINGLE_TIME_RE.search(text)
+        if match:
+            start_time = self._parse_time(match.group(1))
+            if start_time:
+                return start_time, None
+
+        return None
+
+    @staticmethod
+    def _parse_time(time_str: str) -> Optional[time]:
+        """Parse a time string like '8:30 am', '8:30am', or '8:30 a.m.' into a time object."""
+        cleaned = time_str.strip().upper().replace('.', '')
+        # strptime requires whitespace between the time and AM/PM
+        cleaned = re.sub(r'(\d)\s*([AP]M)', r'\1 \2', cleaned)
+        try:
+            return datetime.strptime(cleaned, '%I:%M %p').time()
+        except ValueError:
+            return None
+
+    def _fetch_swoogo_times(self, event_url: str) -> Optional[Tuple[datetime, datetime]]:
+        """Follow a Swoogo event page to its 'add to calendar' ICS export to
+        get a precise start/end time, since Swoogo listing pages often omit
+        the time-of-day entirely. Returns naive Eastern-time datetimes, or
+        None if a precise time can't be determined.
+        """
+        try:
+            content = self._fetch_url(event_url, self.HEADERS)
+            text = content.decode('utf-8', errors='ignore')
+
+            match = re.search(r'eventId=(\d+)', text)
+            if not match:
+                return None
+            event_id = match.group(1)
+
+            parsed_url = urlparse(event_url)
+            ics_url = (
+                f"{parsed_url.scheme}://{parsed_url.netloc}"
+                f"/frontend/add-to-calendar/ics?eventId={event_id}&type=&objectId="
+            )
+            ics_content = self._fetch_url(ics_url, self.HEADERS)
+
+            calendar = ICalCalendar.from_ical(ics_content)
+            for component in calendar.walk('VEVENT'):
+                dtstart = component.get('dtstart')
+                if not dtstart:
+                    continue
+
+                start = dtstart.dt
+                dtend = component.get('dtend')
+                end = dtend.dt if dtend else start
+
+                if isinstance(start, datetime):
+                    start = start.astimezone(self.EASTERN).replace(tzinfo=None)
+                if isinstance(end, datetime):
+                    end = end.astimezone(self.EASTERN).replace(tzinfo=None)
+
+                return start, end
+        except Exception as e:
+            print(f"Could not fetch precise time from {event_url}: {e}")
+
+        return None
+
     def _parse_date(self, date_str: str) -> datetime:
         """Parse date string to datetime object."""
         date_str = date_str.strip()

@@ -77,8 +77,9 @@ class FeedGenerator:
         return output_path
 
     @staticmethod
-    def _localize(dt: datetime) -> datetime:
-        """Attach the DC-area timezone to a naive datetime, leaving aware ones untouched."""
-        if dt.tzinfo is None:
+    def _localize(dt):
+        """Attach the DC-area timezone to a naive datetime, leaving aware
+        datetimes and date-only (time unknown) values untouched."""
+        if isinstance(dt, datetime) and dt.tzinfo is None:
             return dt.replace(tzinfo=EVENT_TIMEZONE)
         return dt
